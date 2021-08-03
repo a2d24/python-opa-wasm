@@ -35,9 +35,15 @@ class OPAPolicy:
         self.module = Module(OPAPolicy.STORE, open(wasm_path, 'rb').read())
         self.instance = Instance(self.module, import_object)
 
-        abi_version = self.instance.exports.opa_wasm_abi_version
-        if abi_version and abi_version.value != 1:
-            raise RuntimeError(f"Unsupported ABI Version {abi_version.value}")
+        abi_major_version = self.instance.exports.opa_wasm_abi_version
+        if abi_major_version and abi_major_version.value != 1:
+            raise RuntimeError(f"Unsupported ABI Version {abi_major_version.value}")
+
+        abi_minor_version = self.instance.exports.opa_wasm_abi_minor_version
+        if abi_minor_version and abi_minor_version.value >= 2:
+            self.supports_fastpath = True
+        else:
+            self.supports_fastpath = False
 
         self.entrypoints = self._fetch_json(self.instance.exports.entrypoints())
         self.builtins_by_id = self._create_builtins_map(builtins if builtins else {})
@@ -46,31 +52,45 @@ class OPAPolicy:
         self.base_heap_pointer = self.instance.exports.opa_heap_ptr_get()
         self.data_heap_pointer = self.base_heap_pointer
 
-    def evaluate(self, input, entrypoint=None):
-        # Reset the heap pointer before each evaluation
-        self.instance.exports.opa_heap_ptr_set(self.data_heap_pointer)
-        input_address = self._put_json(input)
+    def evaluate(self, input, entrypoint=0):
+        entrypoint = self._lookup_entrypoint(entrypoint)
 
-        context = self.instance.exports.opa_eval_ctx_new()
-        self.instance.exports.opa_eval_ctx_set_input(context, input_address)
-        self.instance.exports.opa_eval_ctx_set_data(context, self.data_address)
+        if not self.supports_fastpath:
+            return self._evaluate_legacy(input, entrypoint)
 
-        if entrypoint:
-            entrypoint_index = self._lookup_entrypoint(entrypoint)
-            self.instance.exports.opa_eval_ctx_set_entrypoint(context, entrypoint_index)
-
-        self.instance.exports.eval(context)
-
-        result_address = self.instance.exports.opa_eval_ctx_get_result(context)
-        return self._fetch_json(result_address)
+        return self._evaluate_fastpath(input, entrypoint)
 
     def set_data(self, data):
         self.instance.exports.opa_heap_ptr_set(self.base_heap_pointer)
         self.data_address = self._put_json(data)
         self.data_heap_pointer = self.instance.exports.opa_heap_ptr_get()
 
+    def _evaluate_fastpath(self, input, entrypoint):
+        size = self._put_json_in_memory(input)
+        result = self.instance.exports.opa_eval(0, entrypoint, self.data_address, 0, size, self.data_heap_pointer, 0)
+        return self._fetch_json_raw(result)
+
+    def _evaluate_legacy(self, input, entrypoint):
+        # Reset the heap pointer before each evaluation
+        self.instance.exports.opa_heap_ptr_set(self.data_heap_pointer)
+        input_address = self._put_json(input)
+
+        context = self.instance.exports.opa_eval_ctx_new()
+
+        self.instance.exports.opa_eval_ctx_set_input(context, input_address)
+        self.instance.exports.opa_eval_ctx_set_data(context, self.data_address)
+        self.instance.exports.opa_eval_ctx_set_entrypoint(context, entrypoint)
+
+        self.instance.exports.eval(context)
+        result_address = self.instance.exports.opa_eval_ctx_get_result(context)
+
+        return self._fetch_json(result_address)
+
     def _fetch_json(self, address: int):
         json_address = self.instance.exports.opa_json_dump(address)
+        return self._fetch_json_raw(json_address)
+
+    def _fetch_json_raw(self, json_address: int):
         return json.loads(self._fetch_string_as_bytearray(json_address))
 
     def _put_json(self, value) -> int:
@@ -87,6 +107,16 @@ class OPAPolicy:
             raise RuntimeError("Failed to parse JSON Value")
 
         return dest_json_address
+
+    def _put_json_in_memory(self, value):
+        json_string = json.dumps(value).encode('utf-8')
+        size = len(json_string)
+
+        buffer = self.memory.uint8_view()
+        buffer[0:size] = bytearray(json_string)
+
+        self.data_heap_pointer = size
+        return size
 
     def _fetch_string_as_bytearray(self, address) -> bytearray:
         memory_buffer = bytearray(self.memory.buffer)

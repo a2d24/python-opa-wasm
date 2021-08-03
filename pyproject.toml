@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "opa-wasm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Open Policy Agent WebAssembly SDK for Python"
 authors = ["Imtiaz Mangerah <Imtiaz_Mangerah@a2d24.com>"]
 license = "MIT"
