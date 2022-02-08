@@ -5,8 +5,11 @@ from typing import Union
 
 from wasmer import Memory, MemoryType
 from wasmer import engine, Store, Module, Instance, ImportObject, Function
-from wasmer_compiler_llvm import Compiler
 
+try:
+    from wasmer_compiler_cranelift import Compiler
+except ImportError:
+    from wasmer_compiler_llvm import Compiler
 
 class OPAPolicy:
     STORE = Store(engine.JIT(Compiler))
