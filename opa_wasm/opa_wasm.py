@@ -1,7 +1,7 @@
 import itertools
 import json
 from pathlib import Path
-from typing import Union
+from typing import Union, Tuple
 
 from wasmer import Memory, MemoryType
 from wasmer import engine, Store, Module, Instance, ImportObject, Function
@@ -10,6 +10,7 @@ try:
     from wasmer_compiler_cranelift import Compiler
 except ImportError:
     from wasmer_compiler_llvm import Compiler
+
 
 class OPAPolicy:
     STORE = Store(engine.JIT(Compiler))
@@ -31,7 +32,7 @@ class OPAPolicy:
                 "opa_builtin3": Function(OPAPolicy.STORE, self._opa_builtin3),
                 "opa_builtin4": Function(OPAPolicy.STORE, self._opa_builtin4),
                 "opa_abort": Function(OPAPolicy.STORE, self._opa_abort),
-                "opa_println ": Function(OPAPolicy.STORE, self._opa_println)
+                "opa_println": Function(OPAPolicy.STORE, self._opa_println)
             }
         )
 
@@ -69,8 +70,16 @@ class OPAPolicy:
         self.data_heap_pointer = self.instance.exports.opa_heap_ptr_get()
 
     def _evaluate_fastpath(self, input, entrypoint):
-        size = self._put_json_in_memory(input)
-        result = self.instance.exports.opa_eval(0, entrypoint, self.data_address, 0, size, self.data_heap_pointer, 0)
+        input_address, input_length = self._put_json_in_memory(input)
+        result = self.instance.exports.opa_eval(
+            0,
+            entrypoint,
+            self.data_address,
+            input_address,
+            input_length,
+            self.data_heap_pointer,
+            0
+        )
         return self._fetch_json_raw(result)
 
     def _evaluate_legacy(self, input, entrypoint):
@@ -111,15 +120,16 @@ class OPAPolicy:
 
         return dest_json_address
 
-    def _put_json_in_memory(self, value):
+    def _put_json_in_memory(self, value) -> Tuple[int, int]:
         json_string = json.dumps(value).encode('utf-8')
-        size = len(json_string)
+        input_length = len(json_string)
 
-        buffer = self.memory.uint8_view()
-        buffer[0:size] = bytearray(json_string)
+        input_address = self.data_heap_pointer
+        buffer = self.memory.uint8_view(offset=input_address)
+        buffer[0:input_length] = bytearray(json_string)
 
-        self.data_heap_pointer = size
-        return size
+        self.data_heap_pointer = input_address + input_length
+        return input_address, input_length
 
     def _fetch_string_as_bytearray(self, address) -> bytearray:
         memory_buffer = bytearray(self.memory.buffer)
