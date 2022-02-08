@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "opa-wasm"
-version = "0.2.0"
+version = "0.3.0"
 description = "Open Policy Agent WebAssembly SDK for Python"
 authors = ["Imtiaz Mangerah <Imtiaz_Mangerah@a2d24.com>"]
 license = "MIT"
@@ -14,12 +14,19 @@ documentation = "https://github.com/a2d24/python-opa-wasm"
 [tool.poetry.dependencies]
 python = "^3.8"
 wasmer = "^1.0.0"
-wasmer-compiler-llvm = "^1.0.0"
+wasmer-compiler-llvm = {version = "^1.0.0", optional = true}
+wasmer-compiler-cranelift = {version = "^1.0.0", optional = true}
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.4"
 pytest-cov = "^2.12.1"
+wasmer-compiler-llvm = "^1.0.0"
+wasmer-compiler-cranelift = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.extras]
+cranelift = ["wasmer-compiler-cranelift"]
+llvm = ["wasmer-compiler-llvm"]

@@ -8,9 +8,20 @@ Python module which is an SDK for using WebAssembly (wasm) compiled
 # Getting Started
 ## Install the module
 
+You may choose to use either the `cranelift` or `llvm` compiler package as follows: 
+
 ```
-pip install opa-wasm
+pip install opa-wasm[cranelift]
 ```
+or
+```
+pip install opa-wasm[llvm]
+```
+
+For builds that target AWS Lambda as an execution environment, it is recommended to use cranelift. This avoids 
+the need to bundle additional binary dependencies as part of the lambda package.
+
+See the [wasmer-python](https://github.com/wasmerio/wasmer-python) docs for more information
 
 ## Usage
 
