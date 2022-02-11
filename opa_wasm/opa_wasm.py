@@ -15,11 +15,11 @@ except ImportError:
 class OPAPolicy:
     STORE = Store(engine.JIT(Compiler))
 
-    def __init__(self, wasm_path, memory_pages=5, builtins=None):
+    def __init__(self, wasm_path, memory_pages=5, max_memory_pages=None, builtins=None):
         if not Path(wasm_path).is_file():
             raise ValueError(f"Path: {wasm_path} is not a valid file")
 
-        self.memory = Memory(OPAPolicy.STORE, MemoryType(memory_pages, shared=False))
+        self.memory = Memory(OPAPolicy.STORE, MemoryType(memory_pages, maximum=max_memory_pages, shared=False))
 
         import_object = ImportObject()
         import_object.register(
@@ -52,12 +52,18 @@ class OPAPolicy:
         self.entrypoints = self._fetch_json(self.instance.exports.entrypoints())
         self.builtins_by_id = self._create_builtins_map(builtins if builtins else {})
 
+        # Set the default value for data. This can be overwritten by set_data
         self.data_address = self._put_json({})
+
         self.base_heap_pointer = self.instance.exports.opa_heap_ptr_get()
         self.data_heap_pointer = self.base_heap_pointer
+        self.heap_pointer = self.base_heap_pointer
 
     def evaluate(self, input, entrypoint=0):
         entrypoint = self._lookup_entrypoint(entrypoint)
+
+        # Before each evaluation, reset the heap pointer to the data_heap_pointer
+        self.heap_pointer = self.data_heap_pointer
 
         if not self.supports_fastpath:
             return self._evaluate_legacy(input, entrypoint)
@@ -65,9 +71,13 @@ class OPAPolicy:
         return self._evaluate_fastpath(input, entrypoint)
 
     def set_data(self, data):
+        # Reset the heap to the base_heap_pointer when data is changed
         self.instance.exports.opa_heap_ptr_set(self.base_heap_pointer)
+
+        #  Perform update of data and pointers
         self.data_address = self._put_json(data)
         self.data_heap_pointer = self.instance.exports.opa_heap_ptr_get()
+        self.heap_pointer = self.data_heap_pointer
 
     def _evaluate_fastpath(self, input, entrypoint):
         input_address, input_length = self._put_json_in_memory(input)
@@ -77,7 +87,7 @@ class OPAPolicy:
             self.data_address,
             input_address,
             input_length,
-            self.data_heap_pointer,
+            self.heap_pointer,
             0
         )
         return self._fetch_json_raw(result)
@@ -124,11 +134,11 @@ class OPAPolicy:
         json_string = json.dumps(value).encode('utf-8')
         input_length = len(json_string)
 
-        input_address = self.data_heap_pointer
+        input_address = self.heap_pointer
         buffer = self.memory.uint8_view(offset=input_address)
         buffer[0:input_length] = bytearray(json_string)
 
-        self.data_heap_pointer = input_address + input_length
+        self.heap_pointer = input_address + input_length
         return input_address, input_length
 
     def _fetch_string_as_bytearray(self, address) -> bytearray:
