@@ -18,6 +18,9 @@ or
 pip install opa-wasm[llvm]
 ```
 
+If you are using zsh, consider adding double-quote around the package name such as `"opa-wasm[cranelift]"` or `"opa-wasm[llvm]"` .
+
+
 For builds that target AWS Lambda as an execution environment, it is recommended to use cranelift. This avoids 
 the need to bundle additional binary dependencies as part of the lambda package.
 
